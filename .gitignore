@@ -1,5 +1,6 @@
 /evolution
 /pareto_frontier
 /.venv
+__pycache__
 
 .env

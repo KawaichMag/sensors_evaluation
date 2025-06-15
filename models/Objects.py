@@ -229,6 +229,20 @@ def non_dominated_sorting(population: list[list[Sensor]], view_zones: list[ViewZ
 
     return decode_fronts(get_front(population_fitness, dominance, dominated))
 
+def draw_plan(drone_size: tuple[float, float], sensors: list[Sensor]) -> None:
+    drone_polygon = shapely.Polygon([(-drone_size[0]/2, drone_size[1]/2), (drone_size[0]/2, drone_size[1]/2), 
+                                     (drone_size[0]/2, -drone_size[1]/2), (-drone_size[0]/2, -drone_size[1]/2)])
+
+    _, ax = plt.subplots()
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid(True)
+
+    plot_polygon(drone_polygon, ax=ax, color='black', add_points=False)
+
+    for sensor in sensors:
+        plot_polygon(sensor.get_polygon(), ax=ax, color='green', add_points=False)
+
+    plt.show()
 
 def draw_fronts(population: list[list[Sensor]], 
                 view_zones: list[ViewZone],
@@ -255,7 +269,8 @@ def draw_fronts(population: list[list[Sensor]],
     if show:
         plt.show()
 
-def start_evolution(population: list[list[Sensor]], 
+def start_evolution(drone_size: tuple[float, float],
+                    population: list[list[Sensor]], 
                     view_zones: list[ViewZone], 
                     population_size: int, 
                     gen_num: int, 
@@ -279,7 +294,7 @@ def start_evolution(population: list[list[Sensor]],
     """
     for i in range(gen_num):
         # Crossover and mutation
-        for k in range(len(population) // 2):
+        for k in range(population_size // 2):
             new_sensors_1, new_sensors_2 = crossover(population[k], population[k + 1])
             mutate_sensors(new_sensors_1, 1.5)
             mutate_sensors(new_sensors_2, 1.5)
@@ -300,6 +315,12 @@ def start_evolution(population: list[list[Sensor]],
 
                     if len(new_population) >= population_size:
                         break
+
+                if len(new_population) >= population_size:
+                    break
+
+            if len(new_population) >= population_size:
+                break
 
         population = new_population
 
