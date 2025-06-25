@@ -1,4 +1,5 @@
-from Objects import Sensor, draw_plan
+import copy
+from Objects import Sensor, draw_plan, start_evolution
 import math
 
 drone_size = (670, 810) # In mm
@@ -24,3 +25,22 @@ for i in [5, 7]:
     sensors[i].rotate(math.radians(-90))
 
 draw_plan(drone_size, sensors)
+
+def main():
+    # Define population size
+    population_size = 100
+
+    # Create initial population by deepcopying
+    population = [copy.deepcopy(sensors) for _ in range(population_size)]
+
+    # Start the evolution
+    population = start_evolution(
+                            drone_size,
+                            population, 
+                            [], 
+                            population_size, 
+                            100,
+                            sensors_gif=True)
+
+if __name__ == "__main__":
+    main()

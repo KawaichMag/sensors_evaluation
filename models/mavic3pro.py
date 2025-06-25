@@ -2,18 +2,20 @@ import copy
 from Objects import Sensor, draw_plan, start_evolution
 import math
 
+MULTIPLIER = 20
+
 drone_size = (98, 230) # In mm
 
 sensors = [
-    Sensor((98/2, 230/2), 25*10, math.radians(90)),
-    Sensor((98/2, -230/2), 25*10, math.radians(90)),
-    Sensor((-98/2, 230/2), 25*10, math.radians(90)),
-    Sensor((-98/2, -230/2), 25*10, math.radians(90)),
+    Sensor((98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((-98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((-98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
 
-    Sensor((98/2, 230/2), 25*10, math.radians(90)),
-    Sensor((98/2, -230/2), 25*10, math.radians(90)),
-    Sensor((-98/2, 230/2), 25*10, math.radians(90)),
-    Sensor((-98/2, -230/2), 25*10, math.radians(90))
+    Sensor((98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((-98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
+    Sensor((-98/2, -230/2), 25*MULTIPLIER, math.radians(90))
 ]
 
 for i in [2, 3]:
@@ -33,10 +35,13 @@ def main():
     population = [copy.deepcopy(sensors) for _ in range(population_size)]
 
     # Start the evolution
-    population = start_evolution(population, 
-                                 [], 
-                                 population_size, 
-                                 100)
+    population = start_evolution(
+                            drone_size,
+                            population, 
+                            [], 
+                            population_size, 
+                            100,
+                            sensors_gif=True)
 
 if __name__ == "__main__":
     main()

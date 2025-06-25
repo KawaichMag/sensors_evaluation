@@ -9,6 +9,15 @@ import os
 from PIL import Image
 import numpy as np
 
+type Genotype = list[Sensor]
+type Population = list[Genotype]
+
+type Front = list[int]
+type Fronts = list[Front]
+
+type Fitness = tuple[float, float]
+type IndexedFitness = tuple[Fitness, int]
+
 class Sensor:
     def __init__(self, position: tuple[float, float], distance: float, angle: float):
         self.position = position
@@ -42,8 +51,8 @@ class Sensor:
         self.observation = None
         self.polygon = None
 
-    def move(self, dx: float, dy: float, constrain: int = 0):
-        if constrain == 0:
+    def move(self, dx: float, dy: float, constrains: tuple[float, float] = (0, 0)):
+        if constrains == (0, 0):
             self.position = (self.position[0] + dx, self.position[1] + dy)
             self.observation = None
             self.polygon = None
@@ -51,7 +60,11 @@ class Sensor:
             sign_x = 1 if self.position[0] + dx > 0 else -1
             sign_y = 1 if self.position[1] + dy > 0 else -1
 
-            self.position = (sign_x * min(abs(self.position[0] + dx), constrain), sign_y * min(abs(self.position[1] + dy), constrain))
+            new_x = sign_x * min(abs(self.position[0] + dx), constrains[0])
+            new_y = sign_y * min(abs(self.position[1] + dy), constrains[1])
+
+            self.position = (new_x, new_y)
+
             self.observation = None
             self.polygon = None
 
@@ -95,22 +108,29 @@ def get_coverage(sensors: list[Sensor], view_zones: list[ViewZone]) -> float:
 
         return coverage_area
 
-def draw_experiment(population: list[list[Sensor]], 
+def draw_experiment(drone_size: tuple[float, float],
+                    population: Population, 
                     view_zones: list[ViewZone], 
                     show: bool = True, 
                     save: bool = False, 
+                    subfolder: str = "",
                     filename: str = "evolution",
                     primary_solution_color: str = 'green',
                     other_solutions_color: str = 'red',
                     view_zones_color: str = 'blue',
                     drone_color: str = 'black'):
+
+    os.makedirs(subfolder, exist_ok=True)
+
     # Setup the plot
     fig, ax = plt.subplots()
     ax.grid(True)
     ax.set_aspect('equal', adjustable='box')
 
     # Plot the drone
-    plot_polygon(shapely.Polygon([(-1.5, 1.5), (1.5, 1.5), (1.5, -1.5), (-1.5, -1.5)]), ax=ax, color=drone_color, add_points=False)
+    plot_polygon(shapely.Polygon([(-drone_size[0]/2, drone_size[1]/2), (drone_size[0]/2, drone_size[1]/2), 
+                                 (drone_size[0]/2, -drone_size[1]/2), (-drone_size[0]/2, -drone_size[1]/2)]), 
+                                 ax=ax, color=drone_color, add_points=False)
 
     # Plot the primary solution
     for sensor in population[0]:
@@ -126,7 +146,7 @@ def draw_experiment(population: list[list[Sensor]],
         plot_polygon(view_zone.get_polygon(), ax=ax, color=view_zones_color, add_points=False)
     
     if save:
-        plt.savefig(f"{filename}.png")
+        plt.savefig(f"{subfolder}/{filename}.png")
         plt.close()
     
     if show:
@@ -134,18 +154,18 @@ def draw_experiment(population: list[list[Sensor]],
 
     return fig, ax
     
-def mutate_sensors(sensors: list[Sensor], constrain: int = 0):
+def mutate_sensors(sensors: Genotype, constrains: tuple[float, float] = (0, 0)):
     # Mutate the sensors by rotating and moving them on a normal distribution
-    if constrain == 0:
+    if constrains == (0, 0):
         for sensor in sensors:
             sensor.rotate(random.normalvariate(0, math.pi/6))
             sensor.move(random.normalvariate(0, 1), random.normalvariate(0, 1))
     else:
         for sensor in sensors:
             sensor.rotate(random.normalvariate(0, math.pi/6))
-            sensor.move(random.normalvariate(0, 1), random.normalvariate(0, 1), constrain)
+            sensor.move(random.normalvariate(0, 1), random.normalvariate(0, 1), constrains)
 
-def crossover(sensors1: list[Sensor], sensors2: list[Sensor]) -> list[Sensor]:
+def crossover(sensors1: Genotype, sensors2: Genotype) -> tuple[Genotype, Genotype]:
     # Crossover the sensors by swapping them with a 50% chance
     new_sensors_1 = []
     new_sensors_2 = []
@@ -160,7 +180,7 @@ def crossover(sensors1: list[Sensor], sensors2: list[Sensor]) -> list[Sensor]:
 
     return new_sensors_1, new_sensors_2
 
-def get_overlap(sensors: list[Sensor]) -> float:
+def get_overlap(sensors: Genotype) -> float:
     # Get the overlap of the sensors
     intersection_area = 0
     for sensor in sensors:
@@ -170,7 +190,7 @@ def get_overlap(sensors: list[Sensor]) -> float:
                     intersection_area += sensor.get_polygon().intersection(other_sensor.get_polygon()).area
     return -intersection_area
 
-def fitness_function(sensors: list[Sensor], view_zones: list[ViewZone]) -> tuple[float, float]:
+def fitness_function(sensors: Genotype, view_zones: list[ViewZone]) -> tuple[float, float]:
     return get_coverage(sensors, view_zones), get_overlap(sensors)
 
 def create_gif(folder_path: str, filename: str):
@@ -180,9 +200,9 @@ def create_gif(folder_path: str, filename: str):
     images = [Image.open(os.path.join(folder_path, img)) for img in images]
     images[0].save(os.path.join(folder_path, f"{filename}.gif"), save_all=True, append_images=images[1:], duration=100, loop=0)
 
-def get_front(population_fitness: list[tuple[tuple[float, float], int]], 
+def get_fronts(population_fitness: list[IndexedFitness], 
                   dominance: dict[int, list[int]], 
-                  dominated: dict[int, int]) -> list[tuple[tuple[float, float], int]]:
+                  dominated: dict[int, int]):
     front = list(filter(lambda x: dominated[x[1]] == 0, population_fitness))
     others = list(filter(lambda x: dominated[x[1]] > 0, population_fitness))
 
@@ -197,24 +217,24 @@ def get_front(population_fitness: list[tuple[tuple[float, float], int]],
         dominance.pop(individual[1])
         dominated.pop(individual[1])
 
-    return front_indexes, get_front(others, dominance, dominated)
+    return front_indexes, get_fronts(others, dominance, dominated)
 
-def decode_fronts(fronts) -> list[list[int]]:
+def decode_fronts(encoded_fronts) -> list[Front]:
     # Decode the fronts to a list of lists of sensors
     decoded_fronts = []
 
     while True:
-        if type(fronts[1]) == tuple:
-            decoded_fronts.append(fronts[0])
-            fronts = fronts[1]
+        if type(encoded_fronts[1]) == tuple:
+            decoded_fronts.append(encoded_fronts[0])
+            encoded_fronts = encoded_fronts[1]
         else:
-            decoded_fronts.append(fronts[0])
-            decoded_fronts.append(fronts[1])
+            decoded_fronts.append(encoded_fronts[0])
+            decoded_fronts.append(encoded_fronts[1])
             break
             
     return decoded_fronts
 
-def non_dominated_sorting(population: list[list[Sensor]], view_zones: list[ViewZone]) -> list[list[Sensor]]:
+def non_dominated_sorting(population: Population, view_zones: list[ViewZone]) -> list[Front]:
     population_fitness = [(fitness_function(sensors, view_zones), i) for i, sensors in enumerate(population)]
 
     dominance = {i: [] for i in range(len(population_fitness))}
@@ -227,7 +247,7 @@ def non_dominated_sorting(population: list[list[Sensor]], view_zones: list[ViewZ
                 dominance[individual[1]].append(other_individual[1])
                 dominated[other_individual[1]] += 1
 
-    return decode_fronts(get_front(population_fitness, dominance, dominated))
+    return decode_fronts(get_fronts(population_fitness, dominance, dominated))
 
 def draw_plan(drone_size: tuple[float, float], sensors: list[Sensor]) -> None:
     drone_polygon = shapely.Polygon([(-drone_size[0]/2, drone_size[1]/2), (drone_size[0]/2, drone_size[1]/2), 
@@ -244,12 +264,15 @@ def draw_plan(drone_size: tuple[float, float], sensors: list[Sensor]) -> None:
 
     plt.show()
 
-def draw_fronts(population: list[list[Sensor]], 
+def draw_fronts(population: Population, 
                 view_zones: list[ViewZone],
                 show: bool = True, 
                 save: bool = False, 
+                subfolder: str = "",
                 filename: str = "pareto_frontier"):
-    
+
+    os.makedirs(subfolder, exist_ok=True)
+
     pop_fitness = [fitness_function(population[i], view_zones) for i in range(len(population))]
     fronts_indexes = non_dominated_sorting(population, view_zones)
 
@@ -263,14 +286,14 @@ def draw_fronts(population: list[list[Sensor]],
             ax.plot(pop_fitness[index][0], pop_fitness[index][1], 'o', color=color)
 
     if save:
-        plt.savefig(f"{filename}.png")
+        plt.savefig(f"{subfolder}/{filename}.png")
         plt.close()
 
     if show:
         plt.show()
 
 def start_evolution(drone_size: tuple[float, float],
-                    population: list[list[Sensor]], 
+                    population: Population, 
                     view_zones: list[ViewZone], 
                     population_size: int, 
                     gen_num: int, 
@@ -296,8 +319,8 @@ def start_evolution(drone_size: tuple[float, float],
         # Crossover and mutation
         for k in range(population_size // 2):
             new_sensors_1, new_sensors_2 = crossover(population[k], population[k + 1])
-            mutate_sensors(new_sensors_1, 1.5)
-            mutate_sensors(new_sensors_2, 1.5)
+            mutate_sensors(new_sensors_1, (drone_size[0]/2, drone_size[1]/2))
+            mutate_sensors(new_sensors_2, (drone_size[0]/2, drone_size[1]/2))
 
             population.append(new_sensors_1)
             population.append(new_sensors_2)
@@ -328,10 +351,12 @@ def start_evolution(drone_size: tuple[float, float],
         print(f"Generation {i}: {fitness_function(population[0], view_zones)}")
 
         if sensors_gif:
-            draw_experiment(population[:5], view_zones, show=False, save=True, filename=f"evolution/evolution_{i}")
+            draw_experiment(drone_size, population[:5], view_zones, show=False, save=True, subfolder="evolution", filename=f"evolution_{i}")
             
         if front_gif:
-            draw_fronts(population, view_zones, show=False, save=True, filename=f"pareto_frontier/pareto_frontier_{i}")
+            draw_fronts(population, view_zones, show=False, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
+
+    i += 1
 
     if sensors_gif:
         create_gif("evolution", "evolution")
@@ -340,10 +365,14 @@ def start_evolution(drone_size: tuple[float, float],
         create_gif("pareto_frontier", "pareto_frontier")
 
     if sensor_save:
-        draw_experiment(population[:5], view_zones, show=True, save=False, filename="evolution_finale")
+        draw_experiment(drone_size, population[:5], view_zones, show=True, save=True, subfolder="evolution", filename=f"evolution_{i}")
+    else:
+        draw_experiment(drone_size, population[:5], view_zones, show=True, save=False, subfolder="evolution", filename=f"evolution_{i}")
 
     if front_save:
-        draw_fronts(population, view_zones, show=True, save=False, filename="pareto_frontier_finale")
+        draw_fronts(population, view_zones, show=True, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
+    else:
+        draw_fronts(population, view_zones, show=True, save=False, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
     
     return population
 
@@ -367,7 +396,8 @@ def main():
     population = [copy.deepcopy(sensors) for _ in range(population_size)]
 
     # Start the evolution
-    population = start_evolution(population, 
+    population = start_evolution((10, 10), 
+                                 population, 
                                  view_zones, 
                                  population_size, 
                                  100)
