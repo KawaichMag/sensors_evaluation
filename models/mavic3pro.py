@@ -41,7 +41,10 @@ def main():
                             [], 
                             population_size, 
                             100,
-                            sensors_gif=True)
+                            front_gif=True,
+                            xlabel="angel density",
+                            ylabel="overlapping"
+                            )
 
 if __name__ == "__main__":
     main()

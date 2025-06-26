@@ -1,5 +1,6 @@
 import math
 import random
+import string
 import time
 import copy
 import matplotlib.pyplot as plt
@@ -8,6 +9,7 @@ from shapely.plotting import plot_polygon
 import os
 from PIL import Image
 import numpy as np
+import shutil
 
 type Genotype = list[Sensor]
 type Population = list[Genotype]
@@ -118,9 +120,13 @@ def draw_experiment(drone_size: tuple[float, float],
                     primary_solution_color: str = 'green',
                     other_solutions_color: str = 'red',
                     view_zones_color: str = 'blue',
-                    drone_color: str = 'black'):
+                    drone_color: str = 'black',
+                    first_label: str = "None",
+                    second_label: str = "None"):
 
     os.makedirs(subfolder, exist_ok=True)
+
+    
 
     # Setup the plot
     fig, ax = plt.subplots()
@@ -135,6 +141,8 @@ def draw_experiment(drone_size: tuple[float, float],
     # Plot the primary solution
     for sensor in population[0]:
         plot_polygon(sensor.get_polygon(), ax=ax, color=primary_solution_color, add_points=False)
+        fitness = fitness_function(population[0], view_zones)
+        plt.title(f"{first_label} = {fitness[0]:.4f}, {second_label} = {fitness[1]:.4f}")
 
     # Plot the other solutions
     for sensors in population[1:]:
@@ -182,16 +190,39 @@ def crossover(sensors1: Genotype, sensors2: Genotype) -> tuple[Genotype, Genotyp
 
 def get_overlap(sensors: Genotype) -> float:
     # Get the overlap of the sensors
-    intersection_area = 0
-    for sensor in sensors:
-        for other_sensor in sensors:
+    intersection_areas = []
+
+    for i, sensor in enumerate(sensors):
+        for other_sensor in sensors[i+1:]:
             if sensor != other_sensor:
-                if sensor.get_polygon().intersects(other_sensor.get_polygon()):
-                    intersection_area += sensor.get_polygon().intersection(other_sensor.get_polygon()).area
-    return -intersection_area
+                intersection_areas.append(
+                    -sensor.get_polygon().intersection(other_sensor.get_polygon()).area / sensor.get_polygon().union(other_sensor.get_polygon()).area)
+
+    return sum(intersection_areas) / len(intersection_areas)
+
+def get_angle_density(sensors: Genotype) -> float:
+    # Get the angle density of the sensors
+    angels = []
+    positions = []
+
+    middle_point = sensors[0].position
+
+    for sensor in sensors:
+        middle_point= (sensor.position[0] + middle_point[0]) / 2, (sensor.position[1] + middle_point[1]) / 2
+
+    for i, sensor in enumerate(sensors):
+        angel = sensor.rotation % (2 * math.pi)
+        if angel < 0:
+            angel += math.pi * 2
+        mean_angel = (sensor.position[0] - middle_point[0], sensor.position[1] - middle_point[1])
+        angel_vector = math.atan2(mean_angel[1], mean_angel[0])
+        coef = -abs(abs(angel_vector - angel) - math.pi) / math.pi
+        angels.append(coef)
+                
+    return sum(angels) / len(angels)
 
 def fitness_function(sensors: Genotype, view_zones: list[ViewZone]) -> tuple[float, float]:
-    return get_coverage(sensors, view_zones), get_overlap(sensors)
+    return get_angle_density(sensors), get_overlap(sensors)
 
 def create_gif(folder_path: str, filename: str):
     # Create a gif from the images in the folder
@@ -269,7 +300,9 @@ def draw_fronts(population: Population,
                 show: bool = True, 
                 save: bool = False, 
                 subfolder: str = "",
-                filename: str = "pareto_frontier"):
+                filename: str = "pareto_frontier",
+                xlabel: str = "None",
+                ylabel: str = "None"):
 
     os.makedirs(subfolder, exist_ok=True)
 
@@ -277,6 +310,8 @@ def draw_fronts(population: Population,
     fronts_indexes = non_dominated_sorting(population, view_zones)
 
     _, ax = plt.subplots()
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
 
     colors = ['red', 'blue', 'green', 'purple', 'orange', 'yellow', 'pink', 'brown', 'gray', 'black']
 
@@ -292,6 +327,17 @@ def draw_fronts(population: Population,
     if show:
         plt.show()
 
+def save_first_front(population: Population, fronts_indexes: Fronts, drone_size, first_label: str, second_label: str):
+    sorted_individuals: list[Genotype] = []
+    
+    for index in fronts_indexes[0]:
+        sorted_individuals.append(population[index])
+
+    sorted_individuals.sort(key=lambda x: fitness_function(x, [])[0])
+
+    for i, individual in enumerate(sorted_individuals):
+        draw_experiment(drone_size, [individual], [], save=True, subfolder="first_front", filename=f"individual_{i}", first_label=first_label, second_label=second_label)
+
 def start_evolution(drone_size: tuple[float, float],
                     population: Population, 
                     view_zones: list[ViewZone], 
@@ -300,7 +346,10 @@ def start_evolution(drone_size: tuple[float, float],
                     sensors_gif: bool = False,
                     front_gif: bool = False,
                     sensor_save: bool = True,
-                    front_save: bool = True):
+                    front_save: bool = True,
+                    xlabel: str = "None",
+                    ylabel: str = "None"
+                    ):
     """
     This function starts the evolution by using concepts of NSGA-II genetic algorithm.
     It takes the following parameters:
@@ -315,6 +364,10 @@ def start_evolution(drone_size: tuple[float, float],
     - sensor_save: if True, a png of the sensors at final generation will be saved
     - front_save: if True, a png of the pareto frontier at final generation will be saved
     """
+    shutil.rmtree("evolution")
+    shutil.rmtree("first_front")
+    shutil.rmtree("pareto_frontier")
+
     for i in range(gen_num):
         # Crossover and mutation
         for k in range(population_size // 2):
@@ -347,16 +400,28 @@ def start_evolution(drone_size: tuple[float, float],
 
         population = new_population
 
+        fronts_indexes = non_dominated_sorting(population, view_zones)
+
         # Print the fitness of one of individual from first front
         print(f"Generation {i}: {fitness_function(population[0], view_zones)}")
 
         if sensors_gif:
-            draw_experiment(drone_size, population[:5], view_zones, show=False, save=True, subfolder="evolution", filename=f"evolution_{i}")
+            draw_experiment(drone_size, population[:5], view_zones, show=False, save=True, subfolder="evolution", filename=f"evolution_{i}", first_label=xlabel, second_label=ylabel)
             
         if front_gif:
-            draw_fronts(population, view_zones, show=False, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
+            draw_fronts(population, view_zones, show=False, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}", xlabel=xlabel, ylabel=ylabel)
 
     i += 1
+
+    if sensor_save:
+        draw_experiment(drone_size, population[:5], view_zones, show=True, save=True, subfolder="evolution", filename=f"evolution_{i}", first_label=xlabel, second_label=ylabel)
+    else:
+        draw_experiment(drone_size, population[:5], view_zones, show=True, save=False, subfolder="evolution", filename=f"evolution_{i}", first_label=xlabel, second_label=ylabel)
+
+    if front_save:
+        draw_fronts(population, view_zones, show=True, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}", xlabel=xlabel, ylabel=ylabel)
+    else:
+        draw_fronts(population, view_zones, show=True, save=False, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}", xlabel=xlabel, ylabel=ylabel)
 
     if sensors_gif:
         create_gif("evolution", "evolution")
@@ -364,15 +429,7 @@ def start_evolution(drone_size: tuple[float, float],
     if front_gif:
         create_gif("pareto_frontier", "pareto_frontier")
 
-    if sensor_save:
-        draw_experiment(drone_size, population[:5], view_zones, show=True, save=True, subfolder="evolution", filename=f"evolution_{i}")
-    else:
-        draw_experiment(drone_size, population[:5], view_zones, show=True, save=False, subfolder="evolution", filename=f"evolution_{i}")
-
-    if front_save:
-        draw_fronts(population, view_zones, show=True, save=True, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
-    else:
-        draw_fronts(population, view_zones, show=True, save=False, subfolder="pareto_frontier", filename=f"pareto_frontier_{i}")
+    save_first_front(population, fronts_indexes, drone_size, first_label = xlabel, second_label = ylabel)
     
     return population
 
@@ -400,7 +457,11 @@ def main():
                                  population, 
                                  view_zones, 
                                  population_size, 
-                                 100)
+                                 5,
+                                 front_gif=True,
+                                 sensors_gif=True,
+                                 xlabel="angel density",
+                                 ylabel="overlapping")
 
 if __name__ == "__main__":
     main()
