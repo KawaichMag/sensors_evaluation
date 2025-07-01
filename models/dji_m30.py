@@ -2,17 +2,19 @@ import copy
 from Objects import Sensor, draw_plan, start_evolution
 import math
 
-drone_size = (670, 810) # In mm
-sensors = [
-    Sensor((-670/2, 810/4), 40*100, math.radians(75)),
-    Sensor((670/2, 810/4), 40*100, math.radians(75)),
-    Sensor((-670/2, -810/4), 40*100, math.radians(75)),
-    Sensor((670/2, -810/4), 40*100, math.radians(75)),
+multiplier = 50
 
-    Sensor((670/4, 810/2), 40*100, math.radians(65)),
-    Sensor((670/4, -810/2), 40*100, math.radians(65)),
-    Sensor((-670/4, 810/2), 40*100, math.radians(65)),
-    Sensor((-670/4, -810/2), 40*100, math.radians(65)),
+drone_size = (215, 365) # In mm
+sensors = [
+    Sensor((-drone_size[0]/2, drone_size[1]/2*3/4), 33*multiplier, math.radians(65)),
+    Sensor((drone_size[0]/2, drone_size[1]/2*3/4), 33*multiplier, math.radians(65)),
+    Sensor((-drone_size[0]/2, drone_size[1]/2*1.5/4), 33*multiplier, math.radians(65)),
+    Sensor((drone_size[0]/2, drone_size[1]/2*1.5/4), 33*multiplier, math.radians(65)),
+
+    Sensor((drone_size[0]/4, drone_size[1]/2), 38*multiplier, math.radians(65)),
+    Sensor((drone_size[0]/4, -drone_size[1]/2), 33*multiplier, math.radians(65)),
+    Sensor((-drone_size[0]/4, drone_size[1]/2), 38*multiplier, math.radians(65)),
+    Sensor((-drone_size[0]/4, -drone_size[1]/2), 33*multiplier, math.radians(65)),
 ]
 
 for i in [0, 2]:
@@ -46,4 +48,5 @@ def main():
                             )
 
 if __name__ == "__main__":
+    # draw_plan(drone_size, sensors)
     main()

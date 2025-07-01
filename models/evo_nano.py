@@ -2,30 +2,26 @@ import copy
 from Objects import Sensor, draw_plan, start_evolution
 import math
 
-MULTIPLIER = 20
+multiplier = 50
 
-drone_size = (98, 230) # In mm
-
+drone_size = (94, 142) # In mm
 sensors = [
-    Sensor((98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((-98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((-98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
-
-    Sensor((98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((98/2, -230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((-98/2, 230/2), 25*MULTIPLIER, math.radians(90)),
-    Sensor((-98/2, -230/2), 25*MULTIPLIER, math.radians(90))
+    Sensor((-drone_size[0]/4, drone_size[1]/2), 10*multiplier, math.radians(40)),
+    Sensor((drone_size[0]/4, drone_size[1]/2), 10*multiplier, math.radians(40)),
+    Sensor((-drone_size[0]/4, -drone_size[1]/2), 10*multiplier, math.radians(40)),
+    Sensor((drone_size[0]/4, -drone_size[1]/2), 10*multiplier, math.radians(40)),
 ]
 
-for i in [2, 3]:
-    sensors[i].rotate(math.radians(180))
+# for i in [0, 2]:
+#     sensors[i].rotate(math.radians(180))
 
-for i in [5, 7]:
+for i in [0, 1]:
+    sensors[i].rotate(math.radians(90))
+
+for i in [2, 3]:
     sensors[i].rotate(math.radians(-90))
 
-for i in [4, 6]:
-    sensors[i].rotate(math.radians(90))
+
 
 def main():
     # Define population size
@@ -34,7 +30,7 @@ def main():
     # Create initial population by deepcopying
     population = [copy.deepcopy(sensors) for _ in range(population_size)]
 
-    # Start the evolution
+    # Start the glorious evolution
     population = start_evolution(
                             drone_size,
                             population, 
@@ -47,4 +43,5 @@ def main():
                             )
 
 if __name__ == "__main__":
+    # draw_plan(drone_size, sensors)
     main()

@@ -194,9 +194,8 @@ def get_overlap(sensors: Genotype) -> float:
 
     for i, sensor in enumerate(sensors):
         for other_sensor in sensors[i+1:]:
-            if sensor != other_sensor:
-                intersection_areas.append(
-                    -sensor.get_polygon().intersection(other_sensor.get_polygon()).area / sensor.get_polygon().union(other_sensor.get_polygon()).area)
+            intersection_areas.append(
+                -sensor.get_polygon().intersection(other_sensor.get_polygon()).area / sensor.get_polygon().union(other_sensor.get_polygon()).area)
 
     return sum(intersection_areas) / len(intersection_areas)
 
@@ -214,12 +213,21 @@ def get_angle_density(sensors: Genotype) -> float:
         angel = sensor.rotation % (2 * math.pi)
         if angel < 0:
             angel += math.pi * 2
-        mean_angel = (sensor.position[0] - middle_point[0], sensor.position[1] - middle_point[1])
+        mean_angel = (middle_point[0] - sensor.position[0], middle_point[1] - sensor.position[1])
         angel_vector = math.atan2(mean_angel[1], mean_angel[0])
+        if angel_vector < 0:
+            angel_vector = math.pi * 2 + angel_vector
         coef = -abs(abs(angel_vector - angel) - math.pi) / math.pi
         angels.append(coef)
                 
     return sum(angels) / len(angels)
+
+def get_horizontal_symmetry(sensors: Genotype) -> float:
+    left_side_sensors = list(map(lambda x: x.position[0] < 0, sensors))
+    right_side_sensors = list(map(lambda x: x.position[0] >= 0, sensors))
+
+    
+    return 1
 
 def fitness_function(sensors: Genotype, view_zones: list[ViewZone]) -> tuple[float, float]:
     return get_angle_density(sensors), get_overlap(sensors)
@@ -367,6 +375,9 @@ def start_evolution(drone_size: tuple[float, float],
     shutil.rmtree("evolution")
     shutil.rmtree("first_front")
     shutil.rmtree("pareto_frontier")
+
+    draw_experiment(drone_size, [population[0]], view_zones, show=False, save=True, subfolder="evolution", filename=f"evolution_-1", first_label=xlabel, second_label=ylabel)
+
 
     for i in range(gen_num):
         # Crossover and mutation
