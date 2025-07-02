@@ -1,6 +1,6 @@
-/evolution
-/pareto_frontier
-/first_front
+experiments/evolution
+experiments/pareto_frontier
+experiments/first_front
 /.venv
 __pycache__
 

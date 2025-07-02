@@ -1,6 +1,7 @@
 import math
 import shapely
 
+
 class Sensor:
     def __init__(self, position: tuple[float, float], distance: float, angle: float):
         self.position = position
@@ -9,21 +10,29 @@ class Sensor:
         self.observation = None
         self.polygon = None
         self.rotation = 0.0
-        
+
     def get_observation(self):
         if self.observation is None:
             main_point = self.position
 
-            corner_point1 = (self.distance * math.cos(self.rotation + self.angle/2) + main_point[0], 
-                            self.distance * math.sin(self.rotation + self.angle/2) + main_point[1])
-            
-            corner_point2 = (self.distance * math.cos(self.rotation - self.angle/2) + main_point[0], 
-                            self.distance * math.sin(self.rotation - self.angle/2) + main_point[1])
-            
+            corner_point1 = (
+                self.distance * math.cos(self.rotation + self.angle / 2)
+                + main_point[0],
+                self.distance * math.sin(self.rotation + self.angle / 2)
+                + main_point[1],
+            )
+
+            corner_point2 = (
+                self.distance * math.cos(self.rotation - self.angle / 2)
+                + main_point[0],
+                self.distance * math.sin(self.rotation - self.angle / 2)
+                + main_point[1],
+            )
+
             self.observation = [main_point, corner_point1, corner_point2]
 
         return self.observation
-    
+
     def rotate(self, angle: float):
         self.rotation += angle
         self.observation = None
@@ -59,7 +68,8 @@ class Sensor:
             self.polygon = shapely.Polygon(self.observation)
 
         return self.polygon
-    
+
+
 class ViewZone:
     def __init__(self, path: list[tuple[float, float]]):
         self.path = path
@@ -68,7 +78,7 @@ class ViewZone:
     def get_polygon(self):
         if self.polygon is None:
             self.polygon = shapely.Polygon(self.path)
-            
+
         return self.polygon
 
     def move(self, dx: float, dy: float):
