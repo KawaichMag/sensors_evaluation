@@ -8,6 +8,7 @@ from objects.Objects import Sensor, ViewZone
 from objects.Types import Genotype, Population, Fronts
 from genetic_algorithm.metrics import fitness_function
 from genetic_algorithm.fronts import non_dominated_sorting
+from utils.analysis import save_interest_solutions
 
 
 def draw_plan(drone_size: tuple[float, float], sensors: list[Sensor]) -> None:
@@ -196,3 +197,9 @@ def save_first_front(
             first_label=first_label,
             second_label=second_label,
         )
+
+    with open("experiments/first_front/first_front.txt", "w") as f:
+        for i, individual in enumerate(sorted_individuals):
+            f.write(f"{i}: {fitness_function(individual, [])[0]} {fitness_function(individual, [])[1]}\n")
+
+    save_interest_solutions("experiments/first_front/first_front.txt")

@@ -1,7 +1,9 @@
 experiments/evolution
 experiments/pareto_frontier
 experiments/first_front
-/.venv
+
+.venv
 __pycache__
+.ruff_cache
 
 .env

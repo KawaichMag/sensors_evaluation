@@ -29,7 +29,7 @@ for i in [5, 7]:
 
 def main():
     # Define population size
-    population_size = 300
+    population_size = 200
 
     # Create initial population by deepcopying
     population = [copy.deepcopy(sensors) for _ in range(population_size)]
@@ -40,8 +40,7 @@ def main():
         population,
         [],
         population_size,
-        150,
-        front_gif=True,
+        100,
         xlabel="angel density",
         ylabel="overlapping",
     )
