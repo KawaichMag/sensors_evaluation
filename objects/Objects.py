@@ -11,6 +11,18 @@ class Sensor:
         self.polygon = None
         self.rotation = 0.0
 
+        self.visible_rotation = 0
+        self.visible_angle = math.radians(30)
+
+    def vis_rot_limits(self):
+        min_rot = self.rotation - self.angle / 2 + self.visible_angle / 2
+        max_rot = self.rotation + self.angle / 2 - self.visible_angle / 2
+        return min_rot, max_rot
+
+    def clear_cache(self):
+        self.observation = None
+        self.polygon = None
+
     def get_observation(self):
         if self.observation is None:
             main_point = self.position

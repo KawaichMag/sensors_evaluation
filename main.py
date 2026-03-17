@@ -1,16 +1,19 @@
 import math
 import copy
+import pickle
 
 from genetic_algorithm.evolution import start_evolution
 from objects.Objects import Sensor
+
+DRONE_SIZE = (25, 25)
 
 
 def main():
     # Create all needed sensors with their parameters
     sensors = [
-        Sensor((0, 0), 30, math.pi / 4),
-        Sensor((0, 0), 30, math.pi / 4),
-        Sensor((0, 0), 30, math.pi / 4),
+        Sensor((0, 0), 120, math.pi * 1.5),
+        Sensor((0, 0), 120, math.pi * 1.5),
+        Sensor((0, 0), 120, math.pi * 1.5),
     ]
 
     # Create all zones which sensors needs to cover
@@ -24,7 +27,7 @@ def main():
 
     # Start the evolution
     population = start_evolution(
-        (10, 10),
+        DRONE_SIZE,
         population,
         view_zones,
         population_size,
@@ -34,6 +37,13 @@ def main():
         xlabel="angel density",
         ylabel="overlapping",
     )
+
+    chosen_one = population[0]
+
+    keep_data = {"sensors": chosen_one, "robot_size": DRONE_SIZE}
+
+    with open("saved_configuration.pkl", "wb") as fd:
+        pickle.dump(keep_data, fd)
 
 
 if __name__ == "__main__":
