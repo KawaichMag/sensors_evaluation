@@ -159,10 +159,14 @@ def local_fov_triangle(origin: tuple[float, float], radius: float, center_angle:
 
 
 def apply_visual_rotation_limit(env) -> None:
+    visual_limits = np.minimum(
+        env.rotation_limits,
+        np.full(env.sensor_count, VISUAL_ROTATION_LIMIT, dtype=np.float32),
+    )
     env.sensor_offsets = np.clip(
         env.sensor_offsets,
-        -VISUAL_ROTATION_LIMIT,
-        VISUAL_ROTATION_LIMIT,
+        -visual_limits[np.newaxis, :],
+        visual_limits[np.newaxis, :],
     )
 
 
@@ -192,10 +196,14 @@ def build_visual_sensor_geometry(env, robot_positions: np.ndarray, robot_heading
             current_heading = float(base_heading + env.sensor_offsets[robot_idx, sensor_idx])
             radius = float(env.sensor_ranges[sensor_idx])
             fov_angle = float(env.sensor_fov[sensor_idx])
+            visual_rotation_limit = min(
+                float(env.rotation_limits[sensor_idx]),
+                VISUAL_ROTATION_LIMIT,
+            )
 
             total_global_fov = min(
                 fov_angle + 2.0 * GLOBAL_FOV_MARGIN,
-                fov_angle + 2.0 * VISUAL_ROTATION_LIMIT,
+                fov_angle + 2.0 * visual_rotation_limit,
             )
             global_polygon = fov_sector(
                 sensor_origin_tuple,
@@ -359,10 +367,19 @@ def main() -> None:
             )
         env.outward_sensor_mask = env._compute_outward_sensor_mask()
 
-        observation = env._get_observation()
-        action, _ = model.predict(observation, deterministic=True)
-        _, reward, _, _, info = env.step(action)
+        if baseline_phase:
+            env.sensor_offsets.fill(0.0)
+            info = env._get_info()
+            reward = float(info["reward"])
+        else:
+            observation = env._get_observation()
+            action, _ = model.predict(observation, deterministic=True)
+            _, reward, _, _, info = env.step(action)
         apply_visual_rotation_limit(env)
+        saved_offsets = env.sensor_offsets.copy()
+        env.sensor_offsets.fill(0.0)
+        fixed_info = env._get_info()
+        env.sensor_offsets[:] = saved_offsets
         robot_headings = heading_from_positions(env.robot_positions, previous_positions)
         bodies, global_fovs, local_fovs, _ = build_visual_sensor_geometry(env, env.robot_positions, robot_headings)
         team_center = np.mean(env.robot_positions, axis=0)
@@ -467,6 +484,7 @@ def main() -> None:
                 "frame": frame_idx,
                 "reward": float(reward),
                 "outward_coverage": float(info["outward_coverage"]),
+                "fixed_outward_coverage": float(fixed_info["outward_coverage"]),
                 "teammate_visibility": float(info["teammate_visibility"]),
                 "overlap_penalty": float(info["overlap_penalty"]),
                 "steering_penalty": float(info["steering_penalty"]),
@@ -475,14 +493,24 @@ def main() -> None:
 
         frames = [row["frame"] for row in metrics_rows]
         coverage = [row["outward_coverage"] for row in metrics_rows]
+        fixed_coverage = [row["fixed_outward_coverage"] for row in metrics_rows]
         overlap = [row["overlap_penalty"] for row in metrics_rows]
 
         metrics_ax.clear()
         metrics_ax.set_facecolor("#fbfaf6")
         metrics_ax.grid(True, alpha=0.2)
         metrics_ax.plot(frames, coverage, color="#1f7a8c", linewidth=2.4, label="Union coverage")
+        metrics_ax.plot(
+            frames,
+            fixed_coverage,
+            color="#5c677d",
+            linewidth=1.7,
+            linestyle="--",
+            label="Fixed coverage",
+        )
         metrics_ax.plot(frames, overlap, color="#d1495b", linewidth=1.6, label="Overlap")
         metrics_ax.scatter(frames[-1], coverage[-1], color="#1f7a8c", s=30, zorder=5)
+        metrics_ax.scatter(frames[-1], fixed_coverage[-1], color="#5c677d", s=22, zorder=5)
         metrics_ax.set_xlim(0, max(args.frames - 1, 1))
         metrics_ax.set_ylim(0.0, 1.05)
         metrics_ax.set_title("Dynamic Coverage Trace")

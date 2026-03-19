@@ -11,9 +11,9 @@ DRONE_SIZE = (25, 25)
 def main():
     # Create all needed sensors with their parameters
     sensors = [
-        Sensor((0, 0), 120, math.pi * 1.5),
-        Sensor((0, 0), 120, math.pi * 1.5),
-        Sensor((0, 0), 120, math.pi * 1.5),
+        Sensor((0, 0), 120, math.pi / 3),
+        Sensor((0, 0), 120, math.pi / 3),
+        Sensor((0, 0), 120, math.pi / 3),
     ]
 
     # Create all zones which sensors needs to cover

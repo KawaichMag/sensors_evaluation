@@ -1,10 +1,10 @@
 from .Objects import Sensor
 
-type Genotype = list[Sensor]
-type Population = list[Genotype]
+Genotype = list[Sensor]
+Population = list[Genotype]
 
-type Front = list[int]
-type Fronts = list[Front]
+Front = list[int]
+Fronts = list[Front]
 
-type Fitness = tuple[float, float]
-type IndexedFitness = tuple[Fitness, int]
+Fitness = tuple[float, float]
+IndexedFitness = tuple[Fitness, int]

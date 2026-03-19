@@ -365,11 +365,16 @@ def metrics_with_obstacles(env, robots, visible_polygons, obstacles) -> dict[str
 
     teammate_visibility = visible_pairs / total_pairs if total_pairs else 0.0
     outward_offsets = env.sensor_offsets[env.outward_sensor_mask]
-    steering_penalty = (
-        float(np.mean(np.abs(outward_offsets)) / env.rotation_limit)
-        if outward_offsets.size
-        else 0.0
-    )
+    outward_limits = np.broadcast_to(
+        env.rotation_limits[np.newaxis, :],
+        env.sensor_offsets.shape,
+    )[env.outward_sensor_mask]
+    if outward_offsets.size == 0:
+        steering_penalty = 0.0
+    else:
+        steering_penalty = float(
+            np.mean(np.abs(outward_offsets) / np.maximum(outward_limits, 1e-6))
+        )
     reward = 2.4 * union_area + 1.8 * teammate_visibility - 0.35 * overlap_penalty - 0.10 * steering_penalty
 
     return {
@@ -444,9 +449,12 @@ def main() -> None:
             )
         env.outward_sensor_mask = env._compute_outward_sensor_mask()
 
-        observation = env._get_observation()
-        action, _ = model.predict(observation, deterministic=True)
-        _, _, _, _, _ = env.step(action)
+        if baseline_phase:
+            env.sensor_offsets.fill(0.0)
+        else:
+            observation = env._get_observation()
+            action, _ = model.predict(observation, deterministic=True)
+            _, _, _, _, _ = env.step(action)
         apply_visual_rotation_limit(env)
         robot_headings = heading_from_positions(env.robot_positions, previous_positions)
         bodies, global_fovs, local_fovs, local_origins = build_visual_sensor_geometry(
@@ -477,6 +485,28 @@ def main() -> None:
 
         robots = env._build_team_sensors()
         metrics = metrics_with_obstacles(env, robots, visible_polygons, obstacles)
+        saved_offsets = env.sensor_offsets.copy()
+        env.sensor_offsets.fill(0.0)
+        fixed_robot_headings = heading_from_positions(env.robot_positions, previous_positions)
+        _, _, fixed_local_fovs, fixed_local_origins = build_visual_sensor_geometry(
+            env, env.robot_positions, fixed_robot_headings
+        )
+        fixed_visible_polygons = []
+        for robot_idx in range(env.robot_count):
+            robot_visible = []
+            for sensor_idx in range(env.sensor_count):
+                robot_visible.append(
+                    occluded_sensor_polygon(
+                        fixed_local_fovs[robot_idx][sensor_idx],
+                        fixed_local_origins[robot_idx][sensor_idx],
+                        obstacles,
+                        far_distance,
+                    )
+                )
+            fixed_visible_polygons.append(robot_visible)
+        fixed_robots = env._build_team_sensors()
+        fixed_metrics = metrics_with_obstacles(env, fixed_robots, fixed_visible_polygons, obstacles)
+        env.sensor_offsets[:] = saved_offsets
         team_center = np.mean(env.robot_positions, axis=0)
         previous_positions = env.robot_positions.copy()
 
@@ -592,6 +622,7 @@ def main() -> None:
                 "frame": frame_idx,
                 "reward": metrics["reward"],
                 "outward_coverage": metrics["outward_coverage"],
+                "fixed_outward_coverage": fixed_metrics["outward_coverage"],
                 "teammate_visibility": metrics["teammate_visibility"],
                 "overlap_penalty": metrics["overlap_penalty"],
                 "steering_penalty": metrics["steering_penalty"],
@@ -600,14 +631,24 @@ def main() -> None:
 
         frames = [row["frame"] for row in metrics_rows]
         coverage = [row["outward_coverage"] for row in metrics_rows]
+        fixed_coverage = [row["fixed_outward_coverage"] for row in metrics_rows]
         overlap = [row["overlap_penalty"] for row in metrics_rows]
 
         metrics_ax.clear()
         metrics_ax.set_facecolor("#fbfaf6")
         metrics_ax.grid(True, alpha=0.2)
         metrics_ax.plot(frames, coverage, color="#1f7a8c", linewidth=2.4, label="Union coverage")
+        metrics_ax.plot(
+            frames,
+            fixed_coverage,
+            color="#5c677d",
+            linewidth=1.7,
+            linestyle="--",
+            label="Fixed coverage",
+        )
         metrics_ax.plot(frames, overlap, color="#d1495b", linewidth=1.6, label="Overlap")
         metrics_ax.scatter(frames[-1], coverage[-1], color="#1f7a8c", s=30, zorder=5)
+        metrics_ax.scatter(frames[-1], fixed_coverage[-1], color="#5c677d", s=22, zorder=5)
         metrics_ax.set_xlim(0, max(args.frames - 1, 1))
         metrics_ax.set_ylim(0.0, 1.05)
         metrics_ax.set_title("Dynamic Coverage Trace")

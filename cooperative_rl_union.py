@@ -88,6 +88,31 @@ def clamp(value: np.ndarray, low: float, high: float) -> np.ndarray:
     return np.minimum(np.maximum(value, low), high)
 
 
+def parse_sensor_parameter(
+    value: float | list[float] | tuple[float, ...] | np.ndarray,
+    sensor_count: int,
+    name: str,
+) -> np.ndarray:
+    if np.isscalar(value):
+        return np.full(sensor_count, float(value), dtype=np.float32)
+
+    parsed = np.asarray(value, dtype=np.float32)
+    if parsed.shape != (sensor_count,):
+        raise ValueError(
+            f"{name} must be a scalar or have exactly {sensor_count} values, got shape {parsed.shape}."
+        )
+    return parsed
+
+
+def parse_angle_list(value: str | None) -> list[float] | None:
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        return None
+    return [math.radians(float(part)) for part in parts]
+
+
 def ensure_directory(path: str | Path) -> Path:
     directory = Path(path)
     directory.mkdir(parents=True, exist_ok=True)
@@ -145,8 +170,8 @@ class CooperativeActiveSensingEnv(gym.Env):
         generation_radius: float = DEFAULT_GENERATION_RADIUS,
         world_padding: float = DEFAULT_WORLD_PADDING,
         max_steps: int = DEFAULT_MAX_STEPS,
-        rotation_limit: float = DEFAULT_ROTATION_LIMIT,
-        rotation_step: float = DEFAULT_ROTATION_STEP,
+        rotation_limit: float | list[float] | tuple[float, ...] | np.ndarray = DEFAULT_ROTATION_LIMIT,
+        rotation_step: float | list[float] | tuple[float, ...] | np.ndarray = DEFAULT_ROTATION_STEP,
         seed: int | None = None,
         render_mode: str | None = None,
     ):
@@ -161,8 +186,6 @@ class CooperativeActiveSensingEnv(gym.Env):
         self.generation_radius = generation_radius
         self.world_padding = world_padding
         self.max_steps = max_steps
-        self.rotation_limit = rotation_limit
-        self.rotation_step = rotation_step
         self.render_mode = render_mode
 
         max_extent = self.generation_radius + self.world_padding
@@ -193,6 +216,16 @@ class CooperativeActiveSensingEnv(gym.Env):
         self.sensor_fov = np.array(
             [float(sensor.angle) for sensor in self.base_sensors],
             dtype=np.float32,
+        )
+        self.rotation_limits = parse_sensor_parameter(
+            rotation_limit,
+            self.sensor_count,
+            "rotation_limit",
+        )
+        self.rotation_steps = parse_sensor_parameter(
+            rotation_step,
+            self.sensor_count,
+            "rotation_step",
         )
 
         self.action_space = spaces.Box(
@@ -248,11 +281,11 @@ class CooperativeActiveSensingEnv(gym.Env):
         action = clamp(action, -1.0, 1.0)
         action = action * self.outward_sensor_mask.astype(np.float32)
 
-        self.sensor_offsets += action * self.rotation_step
-        self.sensor_offsets = clamp(
+        self.sensor_offsets += action * self.rotation_steps[np.newaxis, :]
+        self.sensor_offsets = np.clip(
             self.sensor_offsets,
-            -self.rotation_limit,
-            self.rotation_limit,
+            -self.rotation_limits[np.newaxis, :],
+            self.rotation_limits[np.newaxis, :],
         )
 
         self.current_step += 1
@@ -386,10 +419,14 @@ class CooperativeActiveSensingEnv(gym.Env):
         overlap_penalty = self._mean_overlap(outward_sensors) if outward_sensors else 0.0
 
         outward_offsets = self.sensor_offsets[self.outward_sensor_mask]
+        outward_limits = np.broadcast_to(
+            self.rotation_limits[np.newaxis, :],
+            self.sensor_offsets.shape,
+        )[self.outward_sensor_mask]
         if outward_offsets.size == 0:
             steering_penalty = 0.0
         else:
-            steering_penalty = float(np.mean(np.abs(outward_offsets)) / self.rotation_limit)
+            steering_penalty = float(np.mean(np.abs(outward_offsets) / np.maximum(outward_limits, 1e-6)))
 
         return RewardBreakdown(
             outward_coverage=outward_coverage,
@@ -472,7 +509,10 @@ class CooperativeActiveSensingEnv(gym.Env):
 
     def _get_observation(self) -> np.ndarray:
         robot_positions = self._normalize_positions(self.robot_positions).reshape(-1)
-        offsets = (self.sensor_offsets / self.rotation_limit).reshape(-1)
+        offsets = (
+            self.sensor_offsets
+            / np.maximum(self.rotation_limits[np.newaxis, :], 1e-6)
+        ).reshape(-1)
         outward_mask = self.outward_sensor_mask.astype(np.float32).reshape(-1)
         team_center = self._normalize_positions(
             np.mean(self.robot_positions, axis=0, keepdims=True)
@@ -504,6 +544,8 @@ class CooperativeActiveSensingEnv(gym.Env):
             "steering_penalty": reward_breakdown.steering_penalty,
             "outward_sensor_ratio": float(np.mean(self.outward_sensor_mask)),
             "workspace_area": self.workspace_area,
+            "mean_rotation_limit_deg": float(np.mean(np.degrees(self.rotation_limits))),
+            "mean_rotation_step_deg": float(np.mean(np.degrees(self.rotation_steps))),
             "reward": reward_breakdown.total,
             "step": float(self.current_step),
         }
@@ -513,6 +555,8 @@ def make_env(
     config_path: str,
     robot_count: int,
     max_steps: int,
+    rotation_limit: float | list[float] | tuple[float, ...] | np.ndarray = DEFAULT_ROTATION_LIMIT,
+    rotation_step: float | list[float] | tuple[float, ...] | np.ndarray = DEFAULT_ROTATION_STEP,
     seed: int | None = None,
     render_mode: str | None = None,
 ) -> CooperativeActiveSensingEnv:
@@ -520,6 +564,8 @@ def make_env(
         config_path=config_path,
         robot_count=robot_count,
         max_steps=max_steps,
+        rotation_limit=rotation_limit,
+        rotation_step=rotation_step,
         seed=seed,
         render_mode=render_mode,
     )
@@ -536,6 +582,8 @@ def train(args: argparse.Namespace) -> None:
         config_path=args.config,
         robot_count=args.robots,
         max_steps=args.max_steps,
+        rotation_limit=parse_angle_list(args.rotation_limits_deg) or DEFAULT_ROTATION_LIMIT,
+        rotation_step=parse_angle_list(args.rotation_steps_deg) or DEFAULT_ROTATION_STEP,
         seed=args.seed,
     )
     env = Monitor(
@@ -548,6 +596,8 @@ def train(args: argparse.Namespace) -> None:
             "steering_penalty",
             "outward_sensor_ratio",
             "workspace_area",
+            "mean_rotation_limit_deg",
+            "mean_rotation_step_deg",
         ),
     )
     model = PPO(
@@ -578,6 +628,8 @@ def train(args: argparse.Namespace) -> None:
             "seed": args.seed,
             "tensorboard_log": args.tensorboard_log,
             "coverage_mode": "union_area",
+            "rotation_limits_deg": [float(v) for v in np.degrees(env.unwrapped.rotation_limits)],
+            "rotation_steps_deg": [float(v) for v in np.degrees(env.unwrapped.rotation_steps)],
             "monitor_file": str(train_artifacts_dir / "monitor.csv"),
         },
     )
@@ -594,6 +646,8 @@ def evaluate(args: argparse.Namespace) -> None:
         config_path=args.config,
         robot_count=args.robots,
         max_steps=args.max_steps,
+        rotation_limit=parse_angle_list(args.rotation_limits_deg) or DEFAULT_ROTATION_LIMIT,
+        rotation_step=parse_angle_list(args.rotation_steps_deg) or DEFAULT_ROTATION_STEP,
         seed=args.seed,
     )
     model = PPO.load(args.model, env=env)
@@ -622,6 +676,8 @@ def evaluate(args: argparse.Namespace) -> None:
                     "steering_penalty": float(info["steering_penalty"]),
                     "outward_sensor_ratio": float(info["outward_sensor_ratio"]),
                     "workspace_area": float(info["workspace_area"]),
+                    "mean_rotation_limit_deg": float(info["mean_rotation_limit_deg"]),
+                    "mean_rotation_step_deg": float(info["mean_rotation_step_deg"]),
                 }
             )
 
@@ -640,6 +696,8 @@ def evaluate(args: argparse.Namespace) -> None:
                         "steering_penalty": float(info["steering_penalty"]),
                         "outward_sensor_ratio": float(info["outward_sensor_ratio"]),
                         "workspace_area": float(info["workspace_area"]),
+                        "mean_rotation_limit_deg": float(info["mean_rotation_limit_deg"]),
+                        "mean_rotation_step_deg": float(info["mean_rotation_step_deg"]),
                         "steps": int(info["step"]),
                         "deterministic": bool(args.deterministic),
                     }
@@ -669,6 +727,8 @@ def evaluate(args: argparse.Namespace) -> None:
             "seed": args.seed,
             "deterministic": args.deterministic,
             "coverage_mode": "union_area",
+            "rotation_limits_deg": [float(v) for v in np.degrees(env.rotation_limits)],
+            "rotation_steps_deg": [float(v) for v in np.degrees(env.rotation_steps)],
             "mean_total_reward": float(np.mean([row["total_reward"] for row in episode_rows]))
             if episode_rows
             else 0.0,
@@ -698,6 +758,8 @@ def render_random_policy(args: argparse.Namespace) -> None:
         config_path=args.config,
         robot_count=args.robots,
         max_steps=args.max_steps,
+        rotation_limit=parse_angle_list(args.rotation_limits_deg) or DEFAULT_ROTATION_LIMIT,
+        rotation_step=parse_angle_list(args.rotation_steps_deg) or DEFAULT_ROTATION_STEP,
         seed=args.seed,
         render_mode="human",
     )
@@ -720,6 +782,8 @@ def render_random_policy(args: argparse.Namespace) -> None:
                 "steering_penalty": float(info["steering_penalty"]),
                 "outward_sensor_ratio": float(info["outward_sensor_ratio"]),
                 "workspace_area": float(info["workspace_area"]),
+                "mean_rotation_limit_deg": float(info["mean_rotation_limit_deg"]),
+                "mean_rotation_step_deg": float(info["mean_rotation_step_deg"]),
             }
         )
         #env.render()
@@ -736,6 +800,8 @@ def render_random_policy(args: argparse.Namespace) -> None:
             "max_steps": args.max_steps,
             "seed": args.seed,
             "coverage_mode": "union_area",
+            "rotation_limits_deg": [float(v) for v in np.degrees(env.rotation_limits)],
+            "rotation_steps_deg": [float(v) for v in np.degrees(env.rotation_steps)],
             "total_reward": float(total_reward),
             "final_outward_coverage": float(info["outward_coverage"]),
             "final_teammate_visibility": float(info["teammate_visibility"]),
@@ -769,6 +835,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--episodes", type=int, default=3, help="Evaluation episode count.")
     parser.add_argument("--robots", type=int, default=DEFAULT_ROBOT_COUNT, help="Number of robots in the team.")
     parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS, help="Episode horizon.")
+    parser.add_argument(
+        "--rotation-limits-deg",
+        default=None,
+        help="Optional comma-separated per-sensor rotation limits in degrees.",
+    )
+    parser.add_argument(
+        "--rotation-steps-deg",
+        default=None,
+        help="Optional comma-separated per-sensor rotation step sizes in degrees.",
+    )
     parser.add_argument("--seed", type=int, default=None, help="Random seed.")
     parser.add_argument(
         "--deterministic",
