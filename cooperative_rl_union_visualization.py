@@ -9,7 +9,7 @@ import shapely
 from matplotlib import animation
 from shapely.plotting import plot_polygon
 
-from cooperative_rl_union import (
+from RLmain import (
     DEFAULT_CONFIG_PATH,
     ensure_directory,
     make_env,
@@ -38,7 +38,9 @@ def rotation_matrix(angle: float) -> np.ndarray:
     )
 
 
-def heading_from_positions(current: np.ndarray, previous: np.ndarray | None, fallback: float = 0.0) -> np.ndarray:
+def heading_from_positions(
+    current: np.ndarray, previous: np.ndarray | None, fallback: float = 0.0
+) -> np.ndarray:
     if previous is None:
         return np.full(len(current), fallback, dtype=np.float32)
 
@@ -58,7 +60,9 @@ def visual_robot_size(robot_size: np.ndarray) -> tuple[float, float]:
     return base * ROBOT_LENGTH_SCALE, base * ROBOT_WIDTH_SCALE
 
 
-def oriented_robot_polygon(position: np.ndarray, heading: float, robot_size: np.ndarray) -> shapely.Polygon:
+def oriented_robot_polygon(
+    position: np.ndarray, heading: float, robot_size: np.ndarray
+) -> shapely.Polygon:
     length, width = visual_robot_size(robot_size)
     half_l = length / 2.0
     half_w = width / 2.0
@@ -76,7 +80,9 @@ def oriented_robot_polygon(position: np.ndarray, heading: float, robot_size: np.
     return shapely.Polygon(points)
 
 
-def clamp_positions(positions: np.ndarray, world_low: np.ndarray, world_high: np.ndarray) -> np.ndarray:
+def clamp_positions(
+    positions: np.ndarray, world_low: np.ndarray, world_high: np.ndarray
+) -> np.ndarray:
     return np.clip(positions, world_low, world_high)
 
 
@@ -93,8 +99,12 @@ def separate_robot_bodies(
         moved = False
         for i in range(len(adjusted)):
             for j in range(i + 1, len(adjusted)):
-                body_i = oriented_robot_polygon(adjusted[i], float(headings[i]), env.robot_size)
-                body_j = oriented_robot_polygon(adjusted[j], float(headings[j]), env.robot_size)
+                body_i = oriented_robot_polygon(
+                    adjusted[i], float(headings[i]), env.robot_size
+                )
+                body_j = oriented_robot_polygon(
+                    adjusted[j], float(headings[j]), env.robot_size
+                )
                 if not body_i.intersects(body_j):
                     continue
 
@@ -106,7 +116,10 @@ def separate_robot_bodies(
                 else:
                     direction = delta / dist
 
-                overlap_extent = max(body_i.intersection(body_j).area ** 0.5, 1.0) + PAIR_CLEARANCE_MARGIN * 0.15
+                overlap_extent = (
+                    max(body_i.intersection(body_j).area ** 0.5, 1.0)
+                    + PAIR_CLEARANCE_MARGIN * 0.15
+                )
                 shift = 0.5 * overlap_extent * direction
                 adjusted[i] += shift
                 adjusted[j] -= shift
@@ -124,10 +137,18 @@ def safe_positions(
     previous_positions: np.ndarray | None = None,
 ) -> np.ndarray:
     headings = heading_from_positions(candidate_positions, previous_positions)
-    return separate_robot_bodies(env, candidate_positions, headings, env.world_low, env.world_high)
+    return separate_robot_bodies(
+        env, candidate_positions, headings, env.world_low, env.world_high
+    )
 
 
-def fov_sector(origin: tuple[float, float], radius: float, start_angle: float, end_angle: float, samples: int = 18) -> shapely.Polygon:
+def fov_sector(
+    origin: tuple[float, float],
+    radius: float,
+    start_angle: float,
+    end_angle: float,
+    samples: int = 18,
+) -> shapely.Polygon:
     if end_angle < start_angle:
         end_angle += 2.0 * math.pi
     angles = np.linspace(start_angle, end_angle, samples)
@@ -142,7 +163,9 @@ def fov_sector(origin: tuple[float, float], radius: float, start_angle: float, e
     return shapely.Polygon(points)
 
 
-def local_fov_triangle(origin: tuple[float, float], radius: float, center_angle: float, fov_angle: float) -> shapely.Polygon:
+def local_fov_triangle(
+    origin: tuple[float, float], radius: float, center_angle: float, fov_angle: float
+) -> shapely.Polygon:
     return shapely.Polygon(
         [
             origin,
@@ -170,7 +193,9 @@ def apply_visual_rotation_limit(env) -> None:
     )
 
 
-def build_visual_sensor_geometry(env, robot_positions: np.ndarray, robot_headings: np.ndarray):
+def build_visual_sensor_geometry(
+    env, robot_positions: np.ndarray, robot_headings: np.ndarray
+):
     bodies: list[shapely.Polygon] = []
     global_fovs: list[list[shapely.Polygon]] = []
     local_fovs: list[list[shapely.Polygon]] = []
@@ -178,7 +203,9 @@ def build_visual_sensor_geometry(env, robot_positions: np.ndarray, robot_heading
 
     for robot_idx in range(env.robot_count):
         heading = float(robot_headings[robot_idx])
-        body = oriented_robot_polygon(robot_positions[robot_idx], heading, env.robot_size)
+        body = oriented_robot_polygon(
+            robot_positions[robot_idx], heading, env.robot_size
+        )
         bodies.append(body)
 
         rot = rotation_matrix(heading)
@@ -193,7 +220,9 @@ def build_visual_sensor_geometry(env, robot_positions: np.ndarray, robot_heading
             robot_origins.append(sensor_origin_tuple)
 
             base_heading = float(env.base_rotations[sensor_idx] + heading)
-            current_heading = float(base_heading + env.sensor_offsets[robot_idx, sensor_idx])
+            current_heading = float(
+                base_heading + env.sensor_offsets[robot_idx, sensor_idx]
+            )
             radius = float(env.sensor_ranges[sensor_idx])
             fov_angle = float(env.sensor_fov[sensor_idx])
             visual_rotation_limit = min(
@@ -229,14 +258,18 @@ def build_visual_sensor_geometry(env, robot_positions: np.ndarray, robot_heading
 
 
 class SmoothFormationTrajectory:
-    def __init__(self, robot_count: int, world_low: np.ndarray, world_high: np.ndarray, seed: int):
+    def __init__(
+        self, robot_count: int, world_low: np.ndarray, world_high: np.ndarray, seed: int
+    ):
         self.robot_count = robot_count
         self.world_low = world_low.astype(np.float32)
         self.world_high = world_high.astype(np.float32)
         self.rng = np.random.default_rng(seed)
 
         self.center_base = (self.world_low + self.world_high) / 2.0
-        self.center_amp = (self.world_high - self.world_low) * np.array([0.18, 0.14], dtype=np.float32)
+        self.center_amp = (self.world_high - self.world_low) * np.array(
+            [0.18, 0.14], dtype=np.float32
+        )
         self.center_phase = self.rng.uniform(0.0, 2.0 * math.pi, size=2)
 
         angles = np.linspace(0.0, 2.0 * math.pi, robot_count, endpoint=False)
@@ -247,13 +280,25 @@ class SmoothFormationTrajectory:
             ],
             axis=1,
         ).astype(np.float32)
-        self.base_offsets *= self.rng.uniform(38.0, 60.0, size=(robot_count, 1)).astype(np.float32)
+        self.base_offsets *= self.rng.uniform(38.0, 60.0, size=(robot_count, 1)).astype(
+            np.float32
+        )
 
-        self.radial_amp = self.rng.uniform(5.0, 14.0, size=robot_count).astype(np.float32)
-        self.radial_phase = self.rng.uniform(0.0, 2.0 * math.pi, size=robot_count).astype(np.float32)
-        self.local_amp = self.rng.uniform(3.0, 8.0, size=(robot_count, 2)).astype(np.float32)
-        self.local_phase = self.rng.uniform(0.0, 2.0 * math.pi, size=(robot_count, 2)).astype(np.float32)
-        self.local_freq = self.rng.uniform(0.6, 1.3, size=(robot_count, 2)).astype(np.float32)
+        self.radial_amp = self.rng.uniform(5.0, 14.0, size=robot_count).astype(
+            np.float32
+        )
+        self.radial_phase = self.rng.uniform(
+            0.0, 2.0 * math.pi, size=robot_count
+        ).astype(np.float32)
+        self.local_amp = self.rng.uniform(3.0, 8.0, size=(robot_count, 2)).astype(
+            np.float32
+        )
+        self.local_phase = self.rng.uniform(
+            0.0, 2.0 * math.pi, size=(robot_count, 2)
+        ).astype(np.float32)
+        self.local_freq = self.rng.uniform(0.6, 1.3, size=(robot_count, 2)).astype(
+            np.float32
+        )
 
         self.rotation_phase = float(self.rng.uniform(0.0, 2.0 * math.pi))
         self.rotation_wobble_phase = float(self.rng.uniform(0.0, 2.0 * math.pi))
@@ -281,8 +326,14 @@ class SmoothFormationTrajectory:
             offset = self.base_offsets[idx] * radial_scale
             local_wiggle = np.array(
                 [
-                    self.local_amp[idx, 0] * math.sin(self.local_freq[idx, 0] * 0.08 * t + self.local_phase[idx, 0]),
-                    self.local_amp[idx, 1] * math.cos(self.local_freq[idx, 1] * 0.08 * t + self.local_phase[idx, 1]),
+                    self.local_amp[idx, 0]
+                    * math.sin(
+                        self.local_freq[idx, 0] * 0.08 * t + self.local_phase[idx, 0]
+                    ),
+                    self.local_amp[idx, 1]
+                    * math.cos(
+                        self.local_freq[idx, 1] * 0.08 * t + self.local_phase[idx, 1]
+                    ),
                 ],
                 dtype=np.float32,
             )
@@ -303,14 +354,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Visualize smooth multi-robot motion with policy-driven sensor adaptation."
     )
-    parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="Path to saved GA configuration pickle.")
-    parser.add_argument("--model", default=DEFAULT_MODEL_PATH, help="Path to the trained PPO model.")
-    parser.add_argument("--output", default=DEFAULT_OUTPUT_PATH, help="Output GIF path.")
-    parser.add_argument("--frames", type=int, default=DEFAULT_FRAMES, help="Animation frame count.")
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help="Path to saved GA configuration pickle.",
+    )
+    parser.add_argument(
+        "--model", default=DEFAULT_MODEL_PATH, help="Path to the trained PPO model."
+    )
+    parser.add_argument(
+        "--output", default=DEFAULT_OUTPUT_PATH, help="Output GIF path."
+    )
+    parser.add_argument(
+        "--frames", type=int, default=DEFAULT_FRAMES, help="Animation frame count."
+    )
     parser.add_argument("--fps", type=int, default=DEFAULT_FPS, help="Animation FPS.")
-    parser.add_argument("--robots", type=int, default=3, help="Number of robots to visualize.")
-    parser.add_argument("--seed", type=int, default=7, help="Random seed for the trajectory generator.")
-    parser.add_argument("--show", action="store_true", help="Display the animation window after saving.")
+    parser.add_argument(
+        "--robots", type=int, default=3, help="Number of robots to visualize."
+    )
+    parser.add_argument(
+        "--seed", type=int, default=7, help="Random seed for the trajectory generator."
+    )
+    parser.add_argument(
+        "--show", action="store_true", help="Display the animation window after saving."
+    )
     return parser
 
 
@@ -363,7 +430,9 @@ def main() -> None:
             env.robot_positions = safe_positions(
                 env,
                 trajectory.positions_at(motion_frame),
-                previous_positions=frozen_positions if motion_frame == 0 else previous_positions,
+                previous_positions=frozen_positions
+                if motion_frame == 0
+                else previous_positions,
             )
         env.outward_sensor_mask = env._compute_outward_sensor_mask()
 
@@ -381,7 +450,9 @@ def main() -> None:
         fixed_info = env._get_info()
         env.sensor_offsets[:] = saved_offsets
         robot_headings = heading_from_positions(env.robot_positions, previous_positions)
-        bodies, global_fovs, local_fovs, _ = build_visual_sensor_geometry(env, env.robot_positions, robot_headings)
+        bodies, global_fovs, local_fovs, _ = build_visual_sensor_geometry(
+            env, env.robot_positions, robot_headings
+        )
         team_center = np.mean(env.robot_positions, axis=0)
         previous_positions = env.robot_positions.copy()
         if initial_local_fovs is None:
@@ -411,13 +482,26 @@ def main() -> None:
             trails[robot_idx].append(env.robot_positions[robot_idx].copy())
             trail = np.asarray(trails[robot_idx][-25:])
             if len(trail) > 1:
-                ax.plot(trail[:, 0], trail[:, 1], color=robot_colors[robot_idx], alpha=0.45, linewidth=1.6)
+                ax.plot(
+                    trail[:, 0],
+                    trail[:, 1],
+                    color=robot_colors[robot_idx],
+                    alpha=0.45,
+                    linewidth=1.6,
+                )
 
         for robot_idx in range(args.robots):
-            plot_polygon(bodies[robot_idx], ax=ax, add_points=False, color=(0.08, 0.08, 0.08, 0.82))
+            plot_polygon(
+                bodies[robot_idx],
+                ax=ax,
+                add_points=False,
+                color=(0.08, 0.08, 0.08, 0.82),
+            )
 
             for sensor_idx in range(env.sensor_count):
-                is_changing = offset_change[robot_idx, sensor_idx] > ROTATION_CHANGE_THRESHOLD
+                is_changing = (
+                    offset_change[robot_idx, sensor_idx] > ROTATION_CHANGE_THRESHOLD
+                )
                 if env.outward_sensor_mask[robot_idx, sensor_idx]:
                     base_rgb = robot_colors[robot_idx][:3]
                 else:
@@ -441,8 +525,19 @@ def main() -> None:
                 global_polygon = global_fovs[robot_idx][sensor_idx]
                 local_polygon = local_fovs[robot_idx][sensor_idx]
 
-                plot_polygon(global_polygon, ax=ax, add_points=False, color=(*base_rgb, global_alpha))
-                plot_polygon(local_polygon, ax=ax, add_points=False, color=(*base_rgb, local_alpha), alpha=local_alpha)
+                plot_polygon(
+                    global_polygon,
+                    ax=ax,
+                    add_points=False,
+                    color=(*base_rgb, global_alpha),
+                )
+                plot_polygon(
+                    local_polygon,
+                    ax=ax,
+                    add_points=False,
+                    color=(*base_rgb, local_alpha),
+                    alpha=local_alpha,
+                )
 
             ax.scatter(
                 env.robot_positions[robot_idx, 0],
@@ -461,10 +556,19 @@ def main() -> None:
                 weight="bold",
             )
 
-        ax.scatter(team_center[0], team_center[1], marker="x", s=80, color="black", linewidths=1.5)
+        ax.scatter(
+            team_center[0],
+            team_center[1],
+            marker="x",
+            s=80,
+            color="black",
+            linewidths=1.5,
+        )
         if baseline_phase:
             ax.set_title(
-                "Initial Local FOVs | frame {:03d} | baseline view before adaptive steering".format(frame_idx)
+                "Initial Local FOVs | frame {:03d} | baseline view before adaptive steering".format(
+                    frame_idx
+                )
             )
         else:
             ax.set_title(
@@ -499,7 +603,9 @@ def main() -> None:
         metrics_ax.clear()
         metrics_ax.set_facecolor("#fbfaf6")
         metrics_ax.grid(True, alpha=0.2)
-        metrics_ax.plot(frames, coverage, color="#1f7a8c", linewidth=2.4, label="Union coverage")
+        metrics_ax.plot(
+            frames, coverage, color="#1f7a8c", linewidth=2.4, label="Union coverage"
+        )
         metrics_ax.plot(
             frames,
             fixed_coverage,
@@ -508,9 +614,13 @@ def main() -> None:
             linestyle="--",
             label="Fixed coverage",
         )
-        metrics_ax.plot(frames, overlap, color="#d1495b", linewidth=1.6, label="Overlap")
+        metrics_ax.plot(
+            frames, overlap, color="#d1495b", linewidth=1.6, label="Overlap"
+        )
         metrics_ax.scatter(frames[-1], coverage[-1], color="#1f7a8c", s=30, zorder=5)
-        metrics_ax.scatter(frames[-1], fixed_coverage[-1], color="#5c677d", s=22, zorder=5)
+        metrics_ax.scatter(
+            frames[-1], fixed_coverage[-1], color="#5c677d", s=22, zorder=5
+        )
         metrics_ax.set_xlim(0, max(args.frames - 1, 1))
         metrics_ax.set_ylim(0.0, 1.05)
         metrics_ax.set_title("Dynamic Coverage Trace")
@@ -518,7 +628,9 @@ def main() -> None:
         metrics_ax.set_ylabel("Metric value")
         metrics_ax.legend(loc="upper right", frameon=True)
 
-    anim = animation.FuncAnimation(fig, draw_frame, frames=args.frames, interval=1000 / args.fps, repeat=False)
+    anim = animation.FuncAnimation(
+        fig, draw_frame, frames=args.frames, interval=1000 / args.fps, repeat=False
+    )
     writer = animation.PillowWriter(fps=args.fps)
     anim.save(output_path, writer=writer)
 
