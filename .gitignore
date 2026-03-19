@@ -1,9 +1,19 @@
-experiments/evolution
-experiments/pareto_frontier
-experiments/first_front
-
 .venv
 __pycache__
 .ruff_cache
 
+# Environment file
 .env
+
+# GA part logs
+experiments/
+
+# Saved configs etc.
+*.pkl
+
+# Logging RL folders
+models/
+artifacts/
+
+# Folder with tensorboard logs
+training/
