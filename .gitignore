@@ -17,3 +17,4 @@ artifacts/
 
 # Folder with tensorboard logs
 training/
+train/

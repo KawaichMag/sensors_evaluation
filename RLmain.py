@@ -7,6 +7,7 @@ import numpy as np
 from env.RLEnv import make_env
 from utils.files_management import ensure_directory, write_csv, write_json
 from utils.parsing import build_arg_parser, parse_angle_list
+from stable_baselines3.common.vec_env import VecNormalize
 
 DEFAULT_CONFIG_PATH = "saved_configuration.pkl"
 DEFAULT_MODEL_PATH = "models/ppo_active_sensing"
@@ -19,6 +20,13 @@ DEFAULT_MAX_STEPS = 100
 DEFAULT_ROTATION_LIMIT = math.radians(35)
 DEFAULT_ROTATION_STEP = math.radians(6)
 DEFAULT_ARTIFACTS_DIR = "artifacts/cooperative_rl_union"
+
+
+def linear_schedule(initial_value):
+    def func(progress_remaining):
+        return progress_remaining * initial_value
+
+    return func
 
 
 def train(args: argparse.Namespace) -> None:
@@ -38,6 +46,7 @@ def train(args: argparse.Namespace) -> None:
         or DEFAULT_ROTATION_STEP,
         seed=args.seed,
     )
+
     env = Monitor(
         env,
         filename=str(train_artifacts_dir / "monitor.csv"),
@@ -52,14 +61,15 @@ def train(args: argparse.Namespace) -> None:
             "mean_rotation_step_deg",
         ),
     )
+
     model = PPO(
         policy="MlpPolicy",
         env=env,
         verbose=1,
-        n_steps=min(args.max_steps, 256),
-        batch_size=64,
-        learning_rate=3e-4,
-        gamma=0.99,
+        n_steps=1024,
+        batch_size=128,
+        learning_rate=linear_schedule(5e-4),
+        gamma=0,
         tensorboard_log=args.tensorboard_log,
     )
     model.learn(total_timesteps=args.timesteps)
@@ -110,6 +120,7 @@ def evaluate(args: argparse.Namespace) -> None:
         or DEFAULT_ROTATION_STEP,
         seed=args.seed,
     )
+
     model = PPO.load(args.model, env=env)
     episode_rows: list[dict] = []
     step_rows: list[dict] = []
