@@ -20,6 +20,8 @@ DEFAULT_MODEL_PATH = "/tmp/cooperative_rl_union_longrun/models/ppo_active_sensin
 DEFAULT_OUTPUT_PATH = "experiments/cooperative_rl_union/adaptivity.gif"
 DEFAULT_FRAMES = 180
 DEFAULT_FPS = 12
+DEFAULT_MOVEMENT_SECONDS = 10.0
+DEFAULT_PLAYBACK_SPEED = 1.5
 ROBOT_LENGTH_SCALE = 1.8
 ROBOT_WIDTH_SCALE = 0.9
 PAIR_CLEARANCE_MARGIN = 22.0
@@ -257,6 +259,21 @@ def build_visual_sensor_geometry(
     return bodies, global_fovs, local_fovs, local_origins
 
 
+def total_union_coverage(env) -> float:
+    robots = env._build_team_sensors()
+    polygons = []
+    for robot_sensors in robots:
+        for sensor in robot_sensors:
+            polygon = sensor.get_polygon().intersection(env.workspace_polygon)
+            if not polygon.is_empty:
+                polygons.append(polygon)
+
+    if not polygons:
+        return 0.0
+
+    return float(shapely.union_all(polygons).area / max(env.workspace_area, 1e-6))
+
+
 class SmoothFormationTrajectory:
     def __init__(
         self, robot_count: int, world_low: np.ndarray, world_high: np.ndarray, seed: int
@@ -366,7 +383,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", default=DEFAULT_OUTPUT_PATH, help="Output GIF path."
     )
     parser.add_argument(
-        "--frames", type=int, default=DEFAULT_FRAMES, help="Animation frame count."
+        "--frames",
+        type=int,
+        default=None,
+        help="Animation frame count. Defaults to exposition plus movement seconds.",
     )
     parser.add_argument("--fps", type=int, default=DEFAULT_FPS, help="Animation FPS.")
     parser.add_argument(
@@ -374,6 +394,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--seed", type=int, default=7, help="Random seed for the trajectory generator."
+    )
+    parser.add_argument(
+        "--movement-seconds",
+        type=float,
+        default=DEFAULT_MOVEMENT_SECONDS,
+        help="Visible movement duration in seconds.",
+    )
+    parser.add_argument(
+        "--playback-speed",
+        type=float,
+        default=DEFAULT_PLAYBACK_SPEED,
+        help="Trajectory speed multiplier during the visible motion.",
+    )
+    parser.add_argument(
+        "--frame-start",
+        type=int,
+        default=0,
+        help="Render starting from this global frame index.",
+    )
+    parser.add_argument(
+        "--frame-count",
+        type=int,
+        default=None,
+        help="Number of global frames to render from frame-start.",
+    )
+    parser.add_argument(
+        "--ymin",
+        type=float,
+        default=0.50,
+        help="Fixed lower bound for the right plot.",
+    )
+    parser.add_argument(
+        "--ymax",
+        type=float,
+        default=0.62,
+        help="Fixed upper bound for the right plot.",
     )
     parser.add_argument(
         "--show", action="store_true", help="Display the animation window after saving."
@@ -389,11 +445,23 @@ def main() -> None:
 
     output_path = Path(args.output)
     ensure_directory(output_path.parent)
+    source_total_frames = (
+        args.frames
+        if args.frames is not None
+        else int(round(args.fps * (1.0 + args.movement_seconds)))
+    )
+    frame_start = max(args.frame_start, 0)
+    if args.frame_count is None:
+        total_frames = max(source_total_frames - frame_start, 0)
+    else:
+        total_frames = max(min(args.frame_count, source_total_frames - frame_start), 0)
+    if total_frames <= 0:
+        raise ValueError("The requested frame window is empty. Adjust --frame-start/--frame-count.")
 
     env = make_env(
         config_path=args.config,
         robot_count=args.robots,
-        max_steps=args.frames,
+        max_steps=source_total_frames,
         seed=args.seed,
     )
     model = PPO.load(args.model, env=env)
@@ -411,9 +479,8 @@ def main() -> None:
         1,
         2,
         figsize=(14, 8),
-        gridspec_kw={"width_ratios": [2.3, 1.0]},
+        gridspec_kw={"width_ratios": [1.9, 1.35]},
     )
-    trails = [[] for _ in range(args.robots)]
     metrics_rows: list[dict] = []
     previous_positions: np.ndarray | None = None
     previous_offsets: np.ndarray | None = None
@@ -422,16 +489,17 @@ def main() -> None:
 
     def draw_frame(frame_idx: int):
         nonlocal previous_positions, previous_offsets, initial_local_fovs
-        baseline_phase = frame_idx < args.fps
+        global_frame_idx = frame_start + frame_idx
+        baseline_phase = global_frame_idx < args.fps
         if baseline_phase:
             env.robot_positions = frozen_positions.copy()
         else:
-            motion_frame = frame_idx - args.fps
+            motion_time = args.playback_speed * (global_frame_idx - args.fps) / max(args.fps, 1)
             env.robot_positions = safe_positions(
                 env,
-                trajectory.positions_at(motion_frame),
+                trajectory.positions_at(motion_time),
                 previous_positions=frozen_positions
-                if motion_frame == 0
+                if previous_positions is None
                 else previous_positions,
             )
         env.outward_sensor_mask = env._compute_outward_sensor_mask()
@@ -445,15 +513,18 @@ def main() -> None:
             action, _ = model.predict(observation, deterministic=True)
             _, reward, _, _, info = env.step(action)
         apply_visual_rotation_limit(env)
+        total_union = total_union_coverage(env)
         saved_offsets = env.sensor_offsets.copy()
         env.sensor_offsets.fill(0.0)
+        env.outward_sensor_mask = env._compute_outward_sensor_mask()
         fixed_info = env._get_info()
+        fixed_total_union = total_union_coverage(env)
         env.sensor_offsets[:] = saved_offsets
+        env.outward_sensor_mask = env._compute_outward_sensor_mask()
         robot_headings = heading_from_positions(env.robot_positions, previous_positions)
         bodies, global_fovs, local_fovs, _ = build_visual_sensor_geometry(
             env, env.robot_positions, robot_headings
         )
-        team_center = np.mean(env.robot_positions, axis=0)
         previous_positions = env.robot_positions.copy()
         if initial_local_fovs is None:
             initial_local_fovs = local_fovs
@@ -479,18 +550,6 @@ def main() -> None:
         )
 
         for robot_idx in range(args.robots):
-            trails[robot_idx].append(env.robot_positions[robot_idx].copy())
-            trail = np.asarray(trails[robot_idx][-25:])
-            if len(trail) > 1:
-                ax.plot(
-                    trail[:, 0],
-                    trail[:, 1],
-                    color=robot_colors[robot_idx],
-                    alpha=0.45,
-                    linewidth=1.6,
-                )
-
-        for robot_idx in range(args.robots):
             plot_polygon(
                 bodies[robot_idx],
                 ax=ax,
@@ -502,10 +561,7 @@ def main() -> None:
                 is_changing = (
                     offset_change[robot_idx, sensor_idx] > ROTATION_CHANGE_THRESHOLD
                 )
-                if env.outward_sensor_mask[robot_idx, sensor_idx]:
-                    base_rgb = robot_colors[robot_idx][:3]
-                else:
-                    base_rgb = (0.25, 0.45, 0.85)
+                base_rgb = robot_colors[robot_idx][:3]
 
                 if baseline_phase:
                     plot_polygon(
@@ -517,11 +573,12 @@ def main() -> None:
                     )
                     continue
 
-                if not is_changing:
-                    continue
-
-                global_alpha = 0.06
-                local_alpha = 0.58
+                if is_changing:
+                    global_alpha = 0.06
+                    local_alpha = 0.58
+                else:
+                    global_alpha = 0.035
+                    local_alpha = 0.18
                 global_polygon = global_fovs[robot_idx][sensor_idx]
                 local_polygon = local_fovs[robot_idx][sensor_idx]
 
@@ -556,39 +613,17 @@ def main() -> None:
                 weight="bold",
             )
 
-        ax.scatter(
-            team_center[0],
-            team_center[1],
-            marker="x",
-            s=80,
-            color="black",
-            linewidths=1.5,
-        )
-        if baseline_phase:
-            ax.set_title(
-                "Initial Local FOVs | frame {:03d} | baseline view before adaptive steering".format(
-                    frame_idx
-                )
-            )
-        else:
-            ax.set_title(
-                "Adaptive Multi-Robot Sensing | frame {:03d} | reward {:.2f} | union {:.3f} | vis {:.3f} | overlap {:.3f}".format(
-                    frame_idx,
-                    reward,
-                    info["outward_coverage"],
-                    info["teammate_visibility"],
-                    info["overlap_penalty"],
-                )
-            )
         ax.set_xlabel("x")
         ax.set_ylabel("y")
 
         metrics_rows.append(
             {
-                "frame": frame_idx,
+                "frame": global_frame_idx,
                 "reward": float(reward),
                 "outward_coverage": float(info["outward_coverage"]),
                 "fixed_outward_coverage": float(fixed_info["outward_coverage"]),
+                "total_union_coverage": total_union,
+                "fixed_total_union_coverage": fixed_total_union,
                 "teammate_visibility": float(info["teammate_visibility"]),
                 "overlap_penalty": float(info["overlap_penalty"]),
                 "steering_penalty": float(info["steering_penalty"]),
@@ -596,15 +631,14 @@ def main() -> None:
         )
 
         frames = [row["frame"] for row in metrics_rows]
-        coverage = [row["outward_coverage"] for row in metrics_rows]
-        fixed_coverage = [row["fixed_outward_coverage"] for row in metrics_rows]
-        overlap = [row["overlap_penalty"] for row in metrics_rows]
+        coverage = [row["total_union_coverage"] for row in metrics_rows]
+        fixed_coverage = [row["fixed_total_union_coverage"] for row in metrics_rows]
 
         metrics_ax.clear()
         metrics_ax.set_facecolor("#fbfaf6")
         metrics_ax.grid(True, alpha=0.2)
         metrics_ax.plot(
-            frames, coverage, color="#1f7a8c", linewidth=2.4, label="Union coverage"
+            frames, coverage, color="#1f7a8c", linewidth=2.4, label="All-sensor union"
         )
         metrics_ax.plot(
             frames,
@@ -612,24 +646,22 @@ def main() -> None:
             color="#5c677d",
             linewidth=1.7,
             linestyle="--",
-            label="Fixed coverage",
-        )
-        metrics_ax.plot(
-            frames, overlap, color="#d1495b", linewidth=1.6, label="Overlap"
+            label="Fixed all-sensor union",
         )
         metrics_ax.scatter(frames[-1], coverage[-1], color="#1f7a8c", s=30, zorder=5)
         metrics_ax.scatter(
             frames[-1], fixed_coverage[-1], color="#5c677d", s=22, zorder=5
         )
-        metrics_ax.set_xlim(0, max(args.frames - 1, 1))
-        metrics_ax.set_ylim(0.0, 1.05)
-        metrics_ax.set_title("Dynamic Coverage Trace")
+        metrics_ax.set_xlim(frame_start, max(frame_start + total_frames - 1, frame_start + 1))
+        metrics_ax.set_ylim(args.ymin, args.ymax)
+        metrics_ax.set_title("Sensor Area Union")
         metrics_ax.set_xlabel("Frame")
-        metrics_ax.set_ylabel("Metric value")
+        metrics_ax.set_ylabel("Value")
         metrics_ax.legend(loc="upper right", frameon=True)
 
+
     anim = animation.FuncAnimation(
-        fig, draw_frame, frames=args.frames, interval=1000 / args.fps, repeat=False
+        fig, draw_frame, frames=total_frames, interval=1000 / args.fps, repeat=False
     )
     writer = animation.PillowWriter(fps=args.fps)
     anim.save(output_path, writer=writer)
