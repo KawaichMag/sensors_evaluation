@@ -5,16 +5,47 @@ import pickle
 from genetic_algorithm.evolution import start_evolution
 from objects.Objects import Sensor
 
-DRONE_SIZE = (25, 25)
+drone_size = (130, 230)
+multiplier = 50
 
 
 def main():
     # Create all needed sensors with their parameters
     sensors = [
-        Sensor((0, 0), 120, math.pi / 3),
-        Sensor((0, 0), 120, math.pi / 3),
-        Sensor((0, 0), 120, math.pi / 3),
+        Sensor(
+            (-drone_size[0] / 2, drone_size[1] / 8), 10 * multiplier, math.radians(60)
+        ),
+        Sensor(
+            (drone_size[0] / 2, drone_size[1] / 8), 10 * multiplier, math.radians(60)
+        ),
+        Sensor(
+            (-drone_size[0] / 2, -drone_size[1] / 8), 10 * multiplier, math.radians(60)
+        ),
+        Sensor(
+            (drone_size[0] / 2, -drone_size[1] / 8), 10 * multiplier, math.radians(60)
+        ),
+        Sensor(
+            (drone_size[0] / 4, drone_size[1] / 2), 18 * multiplier, math.radians(65)
+        ),
+        Sensor(
+            (drone_size[0] / 4, -drone_size[1] / 2), 16 * multiplier, math.radians(65)
+        ),
+        Sensor(
+            (-drone_size[0] / 4, drone_size[1] / 2), 18 * multiplier, math.radians(65)
+        ),
+        Sensor(
+            (-drone_size[0] / 4, -drone_size[1] / 2), 16 * multiplier, math.radians(65)
+        ),
     ]
+
+    for i in [0, 2]:
+        sensors[i].rotate(math.radians(180))
+
+    for i in [4, 6]:
+        sensors[i].rotate(math.radians(90))
+
+    for i in [5, 7]:
+        sensors[i].rotate(math.radians(-90))
 
     # Create all zones which sensors needs to cover
     view_zones = []
@@ -27,11 +58,11 @@ def main():
 
     # Start the evolution
     population = start_evolution(
-        DRONE_SIZE,
+        drone_size,
         population,
         view_zones,
         population_size,
-        5,
+        100,
         front_gif=True,
         sensors_gif=True,
         xlabel="angel density",
@@ -40,7 +71,7 @@ def main():
 
     chosen_one = population[0]
 
-    keep_data = {"sensors": chosen_one, "robot_size": DRONE_SIZE}
+    keep_data = {"sensors": chosen_one, "robot_size": drone_size}
 
     with open("saved_configuration.pkl", "wb") as fd:
         pickle.dump(keep_data, fd)

@@ -1,8 +1,10 @@
+from pathlib import Path
 import random
 import math
 import copy
 import shutil
 import os
+import csv
 
 from objects.Types import Genotype, Population
 from objects.Objects import ViewZone
@@ -73,26 +75,45 @@ def start_evolution(
         second_label=ylabel,
     )
 
-    for i in range(gen_num):
-        # Crossover and mutation
-        for k in range(population_size // 2):
-            new_sensors_1, new_sensors_2 = crossover(population[k], population[k + 1])
-            mutate_sensors(new_sensors_1, (drone_size[0] / 2, drone_size[1] / 2))
-            mutate_sensors(new_sensors_2, (drone_size[0] / 2, drone_size[1] / 2))
+    baseline = fitness_function(population[0], view_zones)
 
-            population.append(new_sensors_1)
-            population.append(new_sensors_2)
+    print("start objectives: " + str(baseline))
 
-        # Non-dominated sorting
-        fronts_indexes = non_dominated_sorting(population, view_zones)
+    with open("analysis/frontiers.csv", "w") as f:
+        f.write("")
+        csv_logger = csv.writer(f)
+        csv_logger.writerow(
+            ["generation"] + [f"popultaion_{i}" for i in range(population_size)]
+        )
+        csv_logger.writerow(
+            [-1] + [fitness_function(gen, view_zones) for gen in population]
+        )
 
-        new_population = []
+        for i in range(gen_num):
+            # Crossover and mutation
+            for k in range(population_size // 2):
+                new_sensors_1, new_sensors_2 = crossover(
+                    population[k], population[k + 1]
+                )
+                mutate_sensors(new_sensors_1, (drone_size[0] / 2, drone_size[1] / 2))
+                mutate_sensors(new_sensors_2, (drone_size[0] / 2, drone_size[1] / 2))
 
-        # Forming new population
-        while len(new_population) < population_size:
-            for front in fronts_indexes:
-                for index in front:
-                    new_population.append(population[index])
+                population.append(new_sensors_1)
+                population.append(new_sensors_2)
+
+            # Non-dominated sorting
+            fronts_indexes = non_dominated_sorting(population, view_zones)
+
+            new_population = []
+
+            # Forming new population
+            while len(new_population) < population_size:
+                for front in fronts_indexes:
+                    for index in front:
+                        new_population.append(population[index])
+
+                        if len(new_population) >= population_size:
+                            break
 
                     if len(new_population) >= population_size:
                         break
@@ -100,40 +121,41 @@ def start_evolution(
                 if len(new_population) >= population_size:
                     break
 
-            if len(new_population) >= population_size:
-                break
+            population = new_population
 
-        population = new_population
+            fronts_indexes = non_dominated_sorting(population, view_zones)
 
-        fronts_indexes = non_dominated_sorting(population, view_zones)
+            # Print the fitness of one of individual from first front
+            print(f"Generation {i}: {fitness_function(population[0], view_zones)}")
 
-        # Print the fitness of one of individual from first front
-        print(f"Generation {i}: {fitness_function(population[0], view_zones)}")
-
-        if sensors_gif:
-            draw_experiment(
-                drone_size,
-                population[:5],
-                view_zones,
-                show=False,
-                save=True,
-                subfolder="experiments/evolution",
-                filename=f"evolution_{i}",
-                first_label=xlabel,
-                second_label=ylabel,
+            csv_logger.writerow(
+                [i] + [fitness_function(gen, view_zones) for gen in population]
             )
 
-        if front_gif:
-            draw_fronts(
-                population,
-                view_zones,
-                show=False,
-                save=True,
-                subfolder="experiments/pareto_frontier",
-                filename=f"pareto_frontier_{i}",
-                xlabel=xlabel,
-                ylabel=ylabel,
-            )
+            if sensors_gif:
+                draw_experiment(
+                    drone_size,
+                    population[:5],
+                    view_zones,
+                    show=False,
+                    save=True,
+                    subfolder="experiments/evolution",
+                    filename=f"evolution_{i}",
+                    first_label=xlabel,
+                    second_label=ylabel,
+                )
+
+            if front_gif:
+                draw_fronts(
+                    population,
+                    view_zones,
+                    show=False,
+                    save=True,
+                    subfolder="experiments/pareto_frontier",
+                    filename=f"pareto_frontier_{i}",
+                    xlabel=xlabel,
+                    ylabel=ylabel,
+                )
 
     i += 1
 
@@ -195,4 +217,4 @@ def start_evolution(
         population, fronts_indexes, drone_size, first_label=xlabel, second_label=ylabel
     )
 
-    return population
+    return baseline, population

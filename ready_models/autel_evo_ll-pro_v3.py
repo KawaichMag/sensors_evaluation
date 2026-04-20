@@ -8,13 +8,9 @@ multiplier = 50
 drone_size = (130, 230)  # In mm
 sensors = [
     Sensor((-drone_size[0] / 2, drone_size[1] / 8), 10 * multiplier, math.radians(60)),
-    Sensor((drone_size[0] / 2, drone_size[1] / 8), 10 * multiplier, math.radians(60)),
     Sensor((-drone_size[0] / 2, -drone_size[1] / 8), 10 * multiplier, math.radians(60)),
-    Sensor((drone_size[0] / 2, -drone_size[1] / 8), 10 * multiplier, math.radians(60)),
     Sensor((drone_size[0] / 4, drone_size[1] / 2), 18 * multiplier, math.radians(65)),
-    Sensor((drone_size[0] / 4, -drone_size[1] / 2), 16 * multiplier, math.radians(65)),
     Sensor((-drone_size[0] / 4, drone_size[1] / 2), 18 * multiplier, math.radians(65)),
-    Sensor((-drone_size[0] / 4, -drone_size[1] / 2), 16 * multiplier, math.radians(65)),
 ]
 
 for i in [0, 2]:
